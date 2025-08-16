@@ -54,14 +54,23 @@ export default function MultiplayerPage() {
   const [createState, createAction] = useActionState(createRoom, null)
   const [joinState, joinAction] = useActionState(joinRoom, null)
 
+  const handleJoinAction = async (formData: FormData) => {
+    const roomCode = formData.get("roomCode")?.toString()
+    console.log("[v0] Join form submitted with room code:", roomCode)
+    return joinAction(formData)
+  }
+
   useEffect(() => {
     if (createState?.success && createState?.roomCode) {
+      console.log("[v0] Create success, redirecting to:", createState.roomCode)
       router.push(`/multiplayer/room/${createState.roomCode}`)
     }
   }, [createState, router])
 
   useEffect(() => {
+    console.log("[v0] Join state changed:", joinState)
     if (joinState?.success && joinState?.roomCode) {
+      console.log("[v0] Join success, redirecting to:", joinState.roomCode)
       router.push(`/multiplayer/room/${joinState.roomCode}`)
     }
   }, [joinState, router])
@@ -122,7 +131,7 @@ export default function MultiplayerPage() {
               <CardDescription className="text-slate-400">Enter a room code to join your friend's game</CardDescription>
             </CardHeader>
             <CardContent>
-              <form action={joinAction} className="space-y-4">
+              <form action={handleJoinAction} className="space-y-4">
                 {joinState?.error && (
                   <div className="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg text-sm">
                     {joinState.error}

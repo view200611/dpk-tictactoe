@@ -14,6 +14,8 @@ interface LeaderboardUser {
   losses: number
   total_score: number
   total_games: number
+  is_online: boolean
+  last_seen: string
   games: {
     game_type: string
     result: string
@@ -43,7 +45,14 @@ export default async function LeaderboardPage() {
     redirect("/auth/login")
   }
 
-  // Get leaderboard data with enhanced query to include all game types including AI games
+  await supabase
+    .from("users")
+    .update({
+      last_seen: new Date().toISOString(),
+      is_online: true,
+    })
+    .eq("id", user.id)
+
   const { data: leaderboardData, error } = await supabase
     .from("users")
     .select(`
@@ -53,12 +62,15 @@ export default async function LeaderboardPage() {
       draws, 
       losses, 
       total_score,
+      is_online,
+      last_seen,
       games:games!games_player1_id_fkey(
         game_type,
         result,
         created_at
       )
     `)
+    .not("username", "is", null)
     .order("total_score", { ascending: false })
     .order("wins", { ascending: false })
     .limit(50)
@@ -67,8 +79,12 @@ export default async function LeaderboardPage() {
     console.error("Error fetching leaderboard:", error)
   }
 
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+
   const leaderboard: LeaderboardUser[] =
     leaderboardData?.map((user) => {
+      const isOnline = user.last_seen && user.last_seen > fiveMinutesAgo
+
       // Count games by type to ensure hard AI games are included
       const gamesByType =
         user.games?.reduce((acc: any, game: any) => {
@@ -78,10 +94,13 @@ export default async function LeaderboardPage() {
 
       return {
         ...user,
+        is_online: isOnline,
         total_games: user.wins + user.draws + user.losses,
         gamesByType, // Include breakdown for debugging
       }
     }) || []
+
+  const onlineUsersCount = leaderboard.filter((user) => user.is_online).length
 
   // Find current user's position
   const currentUserPosition = leaderboard.findIndex((u) => u.id === user.id) + 1
@@ -93,7 +112,7 @@ export default async function LeaderboardPage() {
       case 2:
         return <Medal className="h-6 w-6 text-gray-400" />
       case 3:
-        return <Award className="h-6 w-6 text-amber-600" />
+        return <Award className="h-5 w-5 text-amber-600" />
       default:
         return <Trophy className="h-5 w-5 text-slate-500" />
     }
@@ -126,20 +145,29 @@ export default async function LeaderboardPage() {
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Link href="/dashboard">
-              <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-800 bg-transparent">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
-              </Button>
-            </Link>
-            <h1 className="text-3xl font-bold text-white">Leaderboard</h1>
-          </div>
+          <Link href="/dashboard">
+            <Button variant="outline" className="border-slate-600 text-slate-300 hover:bg-slate-800 bg-transparent">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Dashboard
+            </Button>
+          </Link>
           {currentUserPosition > 0 && (
             <Badge variant="outline" className="border-blue-500 text-blue-400">
               Your Rank: #{currentUserPosition}
             </Badge>
           )}
+        </div>
+
+        <div className="text-center space-y-4">
+          <h1 className="text-3xl font-bold text-white">Leaderboard</h1>
+          <div className="flex justify-center">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 flex items-center space-x-2">
+              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+              <span className="text-slate-300 text-sm">
+                {onlineUsersCount} player{onlineUsersCount !== 1 ? "s" : ""} online
+              </span>
+            </div>
+          </div>
         </div>
 
         {/* Enhanced Scoring System Info */}
@@ -186,6 +214,11 @@ export default async function LeaderboardPage() {
                   </div>
                   <div className="space-y-1">
                     <p className="font-bold text-white text-sm">{leaderboard[1].username}</p>
+                    <div className="flex items-center justify-center">
+                      <div
+                        className={`w-2 h-2 rounded-full ${leaderboard[1].is_online ? "bg-green-400" : "bg-gray-400"}`}
+                      ></div>
+                    </div>
                     <p className="text-gray-400 text-xs">{leaderboard[1].total_score} pts</p>
                   </div>
                 </div>
@@ -197,6 +230,11 @@ export default async function LeaderboardPage() {
                   </div>
                   <div className="space-y-1">
                     <p className="font-bold text-white">{leaderboard[0].username}</p>
+                    <div className="flex items-center justify-center">
+                      <div
+                        className={`w-2 h-2 rounded-full ${leaderboard[0].is_online ? "bg-green-400" : "bg-gray-400"}`}
+                      ></div>
+                    </div>
                     <p className="text-yellow-400 text-sm">{leaderboard[0].total_score} pts</p>
                   </div>
                 </div>
@@ -208,6 +246,11 @@ export default async function LeaderboardPage() {
                   </div>
                   <div className="space-y-1">
                     <p className="font-bold text-white text-sm">{leaderboard[2].username}</p>
+                    <div className="flex items-center justify-center">
+                      <div
+                        className={`w-2 h-2 rounded-full ${leaderboard[2].is_online ? "bg-green-400" : "bg-gray-400"}`}
+                      ></div>
+                    </div>
                     <p className="text-amber-400 text-xs">{leaderboard[2].total_score} pts</p>
                   </div>
                 </div>
@@ -252,14 +295,19 @@ export default async function LeaderboardPage() {
                           {getRankBadge(position)}
                         </div>
                         <div>
-                          <p className={`font-semibold ${isCurrentUser ? "text-blue-400" : "text-white"}`}>
-                            {player.username}
-                            {isCurrentUser && (
-                              <Badge variant="outline" className="ml-2 border-blue-500 text-blue-400 text-xs">
-                                You
-                              </Badge>
-                            )}
-                          </p>
+                          <div className="flex items-center space-x-2">
+                            <p className={`font-semibold ${isCurrentUser ? "text-blue-400" : "text-white"}`}>
+                              {player.username}
+                              {isCurrentUser && (
+                                <Badge variant="outline" className="ml-2 border-blue-500 text-blue-400 text-xs">
+                                  You
+                                </Badge>
+                              )}
+                            </p>
+                            <div
+                              className={`w-2 h-2 rounded-full ${player.is_online ? "bg-green-400" : "bg-gray-400"}`}
+                            ></div>
+                          </div>
                           <p className="text-sm text-slate-400">
                             {player.total_games} games • {getWinRate(player.wins, player.total_games)} win rate
                           </p>

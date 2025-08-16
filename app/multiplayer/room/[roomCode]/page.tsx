@@ -7,7 +7,6 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Copy, Users, Crown, RotateCcw, CheckCircle } from "lucide-react"
 import GameBoard from "@/components/game-board"
-import { ChatBox } from "@/components/chat-box"
 import { createEmptyBoard, makeMove, getGameResult, type Board, type Player, type GameResult } from "@/lib/game-logic"
 import { supabase } from "@/lib/supabase/client"
 
@@ -25,9 +24,9 @@ interface RoomData {
   player2: { username: string } | null
 }
 
-export default function RoomPage({ params }: { params: { roomCode: string } }) {
-  const { roomCode } = params
+export default function RoomPage({ params }: { params: Promise<{ roomCode: string }> }) {
   const router = useRouter()
+  const [roomCode, setRoomCode] = useState<string>("")
   const [room, setRoom] = useState<RoomData | null>(null)
   const [board, setBoard] = useState<Board>(createEmptyBoard())
   const [currentPlayer, setCurrentPlayer] = useState<Player>("X")
@@ -37,8 +36,8 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [sessionStats, setSessionStats] = useState({ wins: 0, losses: 0, draws: 0 })
 
-  // Get current user
   useEffect(() => {
     const getUser = async () => {
       const {
@@ -49,10 +48,20 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
     getUser()
   }, [])
 
-  // Load room data
+  useEffect(() => {
+    const resolveParams = async () => {
+      const resolvedParams = await params
+      setRoomCode(resolvedParams.roomCode)
+    }
+    resolveParams()
+  }, [params])
+
   useEffect(() => {
     const loadRoom = async () => {
+      if (!roomCode) return
+
       try {
+        console.log("[v0] Loading room:", roomCode)
         const { data: roomData, error: roomError } = await supabase
           .from("rooms")
           .select(`
@@ -64,12 +73,47 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
           .single()
 
         if (roomError || !roomData) {
-          console.error("Room error:", roomError)
-          setError("Room not found")
+          console.error("[v0] Room error:", roomError)
+          setError("Room not found or expired")
           return
         }
 
+        console.log("[v0] Room data loaded:", roomData)
         setRoom(roomData)
+
+        if (!user && roomData.status === "waiting" && !roomData.player2_id) {
+          console.log("[v0] Redirecting to login to join room")
+          router.push(`/auth/login?redirect=/multiplayer/room/${roomCode}`)
+          return
+        }
+
+        if (user && roomData.status === "waiting" && !roomData.player2_id && roomData.creator_id !== user.id) {
+          console.log("[v0] Auto-joining room as player2")
+          const { error: joinError } = await supabase
+            .from("rooms")
+            .update({
+              player2_id: user.id,
+              status: "playing",
+            })
+            .eq("id", roomData.id)
+            .eq("status", "waiting")
+
+          if (!joinError) {
+            const { data: updatedRoomData } = await supabase
+              .from("rooms")
+              .select(`
+                *,
+                creator:users!creator_id(username),
+                player2:users!player2_id(username)
+              `)
+              .eq("id", roomData.id)
+              .single()
+
+            if (updatedRoomData) {
+              setRoom(updatedRoomData)
+            }
+          }
+        }
 
         if (roomData.board_state) {
           let parsedBoard = roomData.board_state
@@ -100,13 +144,11 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
     if (roomCode) {
       loadRoom()
     }
-  }, [roomCode])
+  }, [roomCode, user, router])
 
-  // Real-time subscriptions
   useEffect(() => {
     if (!room) return
 
-    // Subscribe to room changes
     const roomSubscription = supabase
       .channel(`room-${room.id}`)
       .on(
@@ -117,28 +159,41 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
           table: "rooms",
           filter: `id=eq.${room.id}`,
         },
-        (payload) => {
+        async (payload) => {
+          console.log("[v0] Room update received:", payload)
           if (payload.eventType === "UPDATE") {
-            const updatedRoom = payload.new as RoomData
-            setRoom((prev) => ({ ...prev, ...updatedRoom }))
+            const { data: updatedRoomData } = await supabase
+              .from("rooms")
+              .select(`
+                *,
+                creator:users!creator_id(username),
+                player2:users!player2_id(username)
+              `)
+              .eq("id", room.id)
+              .single()
 
-            if (updatedRoom.board_state) {
-              let parsedBoard = updatedRoom.board_state
-              if (typeof updatedRoom.board_state === "string") {
-                try {
-                  parsedBoard = JSON.parse(updatedRoom.board_state)
-                } catch (e) {
-                  console.error("Error parsing board_state:", e)
-                  parsedBoard = createEmptyBoard()
+            if (updatedRoomData) {
+              console.log("[v0] Updated room data:", updatedRoomData)
+              setRoom(updatedRoomData)
+
+              if (updatedRoomData.board_state) {
+                let parsedBoard = updatedRoomData.board_state
+                if (typeof updatedRoomData.board_state === "string") {
+                  try {
+                    parsedBoard = JSON.parse(updatedRoomData.board_state)
+                  } catch (e) {
+                    console.error("Error parsing board_state:", e)
+                    parsedBoard = createEmptyBoard()
+                  }
                 }
+
+                setBoard(parsedBoard)
+                setCurrentPlayer(updatedRoomData.current_player || "X")
+
+                const result = getGameResult(parsedBoard, updatedRoomData.current_player || "X")
+                setGameResult(result.result)
+                setWinner(result.winner)
               }
-
-              setBoard(parsedBoard)
-              setCurrentPlayer(updatedRoom.current_player || "X")
-
-              const result = getGameResult(parsedBoard, updatedRoom.current_player || "X")
-              setGameResult(result.result)
-              setWinner(result.winner)
             }
           }
         },
@@ -150,27 +205,9 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
     }
   }, [room])
 
-  const startGame = async () => {
-    if (!room || !user || room.status !== "waiting" || !room.player2_id) return
-
-    try {
-      await supabase
-        .from("rooms")
-        .update({
-          status: "playing",
-          board_state: createEmptyBoard(),
-          current_player: "X",
-        })
-        .eq("id", room.id)
-    } catch (err) {
-      console.error("Error starting game:", err)
-    }
-  }
-
   const handleCellClick = async (index: number) => {
     if (!room || !user || gameResult !== "ongoing") return
 
-    // Check if it's the player's turn
     const isCreator = user.id === room.creator_id
     const playerSymbol = isCreator ? "X" : "O"
 
@@ -189,6 +226,14 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
       if (result.result !== "ongoing") {
         updateData.status = "completed"
         updateData.winner = result.winner === "X" ? room.creator_id : result.winner === "O" ? room.player2_id : null
+
+        if (result.result === "win" && result.winner === playerSymbol) {
+          setSessionStats((prev) => ({ ...prev, wins: prev.wins + 1 }))
+        } else if (result.result === "win" && result.winner !== playerSymbol) {
+          setSessionStats((prev) => ({ ...prev, losses: prev.losses + 1 }))
+        } else if (result.result === "draw") {
+          setSessionStats((prev) => ({ ...prev, draws: prev.draws + 1 }))
+        }
       }
 
       await supabase.from("rooms").update(updateData).eq("id", room.id)
@@ -232,36 +277,6 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
     }
   }
 
-  // ... existing loading and error states ...
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-        <div className="text-white">Loading room...</div>
-      </div>
-    )
-  }
-
-  if (error || !room) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
-        <Card className="bg-slate-800 border-slate-700">
-          <CardContent className="p-6 text-center">
-            <p className="text-red-400 mb-4">{error || "Room not found"}</p>
-            <Button onClick={() => router.push("/multiplayer")} className="bg-blue-600 hover:bg-blue-700">
-              Back to Multiplayer
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  const isCreator = user?.id === room.creator_id
-  const isPlayer2 = user?.id === room.player2_id
-  const playerSymbol = isCreator ? "X" : "O"
-
-  // Get winning cells for highlighting
   const getWinningCells = (): number[] => {
     if (winner === "") return []
 
@@ -285,10 +300,30 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
     return []
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="text-white text-xl">Loading room...</div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-xl mb-4">{error}</div>
+          <Button onClick={() => router.push("/multiplayer")} variant="outline">
+            Back to Multiplayer
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-4">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header */}
+      <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <Button
             onClick={() => router.push("/multiplayer")}
@@ -313,135 +348,139 @@ export default function RoomPage({ params }: { params: { roomCode: string } }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Game Area */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Room Status */}
-            <Card className="bg-slate-800 border-slate-700">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold text-white">Room Status</h2>
-                  <Badge
-                    className={
-                      room.status === "waiting"
-                        ? "bg-yellow-600"
-                        : room.status === "playing"
-                          ? "bg-green-600"
-                          : "bg-blue-600"
-                    }
-                  >
-                    {room.status === "waiting" ? "Waiting" : room.status === "playing" ? "Playing" : "Completed"}
-                  </Badge>
+        {(sessionStats.wins > 0 || sessionStats.losses > 0 || sessionStats.draws > 0) && (
+          <Card className="bg-slate-800 border-slate-700">
+            <CardContent className="p-4">
+              <h3 className="text-lg font-semibold text-white mb-2">Session Stats</h3>
+              <div className="flex space-x-6">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">{sessionStats.wins}</div>
+                  <div className="text-sm text-slate-400">Wins</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-400">{sessionStats.losses}</div>
+                  <div className="text-sm text-slate-400">Losses</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-400">{sessionStats.draws}</div>
+                  <div className="text-sm text-slate-400">Draws</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="space-y-6">
+          <Card className="bg-slate-800 border-slate-700">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-white">Room Status</h2>
+                <Badge
+                  className={
+                    room?.status === "waiting"
+                      ? "bg-yellow-600"
+                      : room?.status === "playing"
+                        ? "bg-green-600"
+                        : "bg-blue-600"
+                  }
+                >
+                  {room?.status === "waiting" ? "Waiting" : room?.status === "playing" ? "Playing" : "Completed"}
+                </Badge>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Crown className="h-4 w-4 text-yellow-500" />
+                  <span className="text-slate-300">Host: {room?.creator.username}</span>
+                  {user?.id === room?.creator_id && (
+                    <Badge variant="outline" className="border-yellow-500 text-yellow-500">
+                      You
+                    </Badge>
+                  )}
                 </div>
 
-                <div className="space-y-3">
+                {room?.player2 ? (
                   <div className="flex items-center space-x-2">
-                    <Crown className="h-4 w-4 text-yellow-500" />
-                    <span className="text-slate-300">Host: {room.creator.username}</span>
-                    {isCreator && (
-                      <Badge variant="outline" className="border-yellow-500 text-yellow-500">
+                    <Users className="h-4 w-4 text-blue-500" />
+                    <span className="text-slate-300">Guest: {room.player2.username}</span>
+                    {user?.id === room?.player2_id && (
+                      <Badge variant="outline" className="border-blue-500 text-blue-500">
                         You
                       </Badge>
                     )}
                   </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-4 w-4 text-slate-500" />
+                    <span className="text-slate-500">Waiting for guest...</span>
+                  </div>
+                )}
+              </div>
 
-                  {room.player2 ? (
-                    <div className="flex items-center space-x-2">
-                      <Users className="h-4 w-4 text-blue-500" />
-                      <span className="text-slate-300">Guest: {room.player2.username}</span>
-                      {isPlayer2 && (
-                        <Badge variant="outline" className="border-blue-500 text-blue-500">
-                          You
+              {room?.status === "waiting" && !room.player2_id && (
+                <div className="mt-4 text-center">
+                  <p className="text-slate-400 text-sm">Share the room code with a friend to start playing!</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {room?.status !== "waiting" && (
+            <>
+              <Card className="bg-slate-800 border-slate-700">
+                <CardContent className="p-6 text-center">
+                  {gameResult === "ongoing" && (
+                    <div className="space-y-2">
+                      <p className="text-lg text-white">
+                        {currentPlayer === (user?.id === room?.creator_id ? "X" : "O")
+                          ? "Your turn"
+                          : "Opponent's turn"}
+                      </p>
+                      <div className="flex justify-center space-x-2">
+                        <Badge variant="outline" className="border-blue-500 text-blue-400">
+                          You are {user?.id === room?.creator_id ? "X" : "O"}
                         </Badge>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-2">
-                      <Users className="h-4 w-4 text-slate-500" />
-                      <span className="text-slate-500">Waiting for guest...</span>
+                      </div>
                     </div>
                   )}
-                </div>
-
-                {room.status === "waiting" && room.player2_id && isCreator && (
-                  <Button onClick={startGame} className="w-full mt-4 bg-green-600 hover:bg-green-700">
-                    Start Game
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Game */}
-            {room.status !== "waiting" && (
-              <>
-                {/* Game Status */}
-                <Card className="bg-slate-800 border-slate-700">
-                  <CardContent className="p-6 text-center">
-                    {gameResult === "ongoing" && (
-                      <div className="space-y-2">
-                        <p className="text-lg text-white">
-                          {currentPlayer === playerSymbol ? "Your turn" : "Opponent's turn"}
-                        </p>
-                        <div className="flex justify-center space-x-2">
-                          <Badge variant="outline" className="border-blue-500 text-blue-400">
-                            You are {playerSymbol}
-                          </Badge>
-                        </div>
-                      </div>
-                    )}
-                    {gameResult === "win" && (
-                      <div className="space-y-2">
-                        <p className="text-2xl font-bold text-white">
-                          {winner === playerSymbol ? "🎉 You Won!" : "😔 You Lost!"}
-                        </p>
-                        <p className="text-slate-400">
-                          {winner === playerSymbol ? "Great job!" : "Better luck next time!"}
-                        </p>
-                      </div>
-                    )}
-                    {gameResult === "draw" && (
-                      <div className="space-y-2">
-                        <p className="text-2xl font-bold text-white">🤝 It's a Draw!</p>
-                        <p className="text-slate-400">Well played!</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Game Board */}
-                <GameBoard
-                  board={board}
-                  onCellClick={handleCellClick}
-                  disabled={currentPlayer !== playerSymbol || gameResult !== "ongoing"}
-                  winningCells={getWinningCells()}
-                />
-
-                {/* Game Controls */}
-                {gameResult !== "ongoing" && isCreator && (
-                  <div className="flex justify-center">
-                    <Button onClick={resetGame} className="bg-blue-600 hover:bg-blue-700">
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Play Again
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="lg:col-span-1">
-            {room.player2_id && user && <ChatBox roomId={room.id} currentUserId={user.id} />}
-            {!room.player2_id && (
-              <Card className="h-80">
-                <CardContent className="p-6 flex items-center justify-center h-full">
-                  <div className="text-center text-slate-400">
-                    <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">Chat will be available when both players join</p>
-                  </div>
+                  {gameResult === "win" && (
+                    <div className="space-y-2">
+                      <p className="text-2xl font-bold text-white">
+                        {winner === (user?.id === room?.creator_id ? "X" : "O") ? "🎉 You Won!" : "😔 You Lost!"}
+                      </p>
+                      <p className="text-slate-400">
+                        {winner === (user?.id === room?.creator_id ? "X" : "O")
+                          ? "Great job!"
+                          : "Better luck next time!"}
+                      </p>
+                    </div>
+                  )}
+                  {gameResult === "draw" && (
+                    <div className="space-y-2">
+                      <p className="text-2xl font-bold text-white">🤝 It's a Draw!</p>
+                      <p className="text-slate-400">Well played!</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
-            )}
-          </div>
+
+              <GameBoard
+                board={board}
+                onCellClick={handleCellClick}
+                disabled={currentPlayer !== (user?.id === room?.creator_id ? "X" : "O") || gameResult !== "ongoing"}
+                winningCells={getWinningCells()}
+              />
+
+              {gameResult !== "ongoing" && user?.id === room?.creator_id && (
+                <div className="flex justify-center">
+                  <Button onClick={resetGame} className="bg-blue-600 hover:bg-blue-700">
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Play Again
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>

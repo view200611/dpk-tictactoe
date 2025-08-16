@@ -67,7 +67,7 @@ export async function signUp(prevState: any, formData: FormData) {
       .from("users")
       .select("username")
       .eq("username", username.toString())
-      .single()
+      .maybeSingle()
 
     if (existingUser) {
       return { error: "Username already taken" }
@@ -93,13 +93,10 @@ export async function signUp(prevState: any, formData: FormData) {
       return { error: "User already exists with this email" }
     }
 
-    // Create user profile with retry logic
+    // Create user profile with upsert to handle duplicates
     if (authData.user) {
-      let retries = 3
-      let profileError = null
-
-      while (retries > 0) {
-        const { error } = await supabase.from("users").insert({
+      const { error: profileError } = await supabase.from("users").upsert(
+        {
           id: authData.user.id,
           email: email.toString(),
           username: username.toString(),
@@ -107,25 +104,16 @@ export async function signUp(prevState: any, formData: FormData) {
           draws: 0,
           losses: 0,
           total_score: 0,
-        })
-
-        if (!error) {
-          profileError = null
-          break
-        }
-
-        profileError = error
-        retries--
-
-        if (retries > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 1000)) // Wait 1 second before retry
-        }
-      }
+          last_active: new Date().toISOString(),
+        },
+        {
+          onConflict: "id",
+        },
+      )
 
       if (profileError) {
         console.error("Profile creation error:", profileError)
-        // Don't fail registration if profile creation fails - we can create it later during login
-        console.log("Profile creation failed, but auth user created successfully")
+        return { error: "Failed to create user profile. Please try again." }
       }
     }
 

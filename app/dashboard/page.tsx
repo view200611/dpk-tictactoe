@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { LogOut, Bot, Users, Trophy, TrendingUp, Target, Zap, UserPlus } from "lucide-react"
+import { LogOut, Bot, Users, Trophy, TrendingUp, Target, Zap } from "lucide-react"
 import { signOut } from "@/lib/actions"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
@@ -32,8 +32,8 @@ export default function Dashboard() {
 
       setUser(user)
 
-      // Get user profile with stats
       const { data: profile } = await supabase.from("users").select("*").eq("id", user.id).single()
+
       setUserProfile(profile)
 
       const { data: games } = await supabase
@@ -94,9 +94,7 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="space-y-2">
-            <h1 className="text-4xl font-bold text-white">
-              Welcome back, {userProfile?.username || user?.email?.split("@")[0]}
-            </h1>
+            <h1 className="text-4xl font-bold text-white">Welcome back, {userProfile?.username || "User"}</h1>
             <p className="text-slate-400 text-lg">Ready for another challenge?</p>
           </div>
           <div className="flex items-center space-x-3">
@@ -193,101 +191,112 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* Game Modes */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <Card className="bg-gradient-to-br from-blue-600/10 to-blue-800/10 border-blue-700/50 hover:from-blue-600/20 hover:to-blue-800/20 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-blue-500/10">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center text-xl">
-                <Bot className="h-6 w-6 mr-3 text-blue-400" />
-                Play vs AI
-              </CardTitle>
-              <CardDescription className="text-slate-300">
-                Challenge the computer with three difficulty levels
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between text-sm">
-                <div className="flex items-center space-x-2">
-                  <Zap className="h-4 w-4 text-green-400" />
-                  <span className="text-slate-400">Easy</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Target className="h-4 w-4 text-yellow-400" />
-                  <span className="text-slate-400">Medium</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Trophy className="h-4 w-4 text-red-400" />
-                  <span className="text-slate-400">Hard</span>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Play vs AI Card */}
+          <Card className="bg-slate-800/90 border-2 border-blue-500/50 hover:border-blue-400 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/20">
+            <CardContent className="p-6">
+              <div className="flex items-start space-x-3 mb-4">
+                <Bot className="h-8 w-8 text-blue-400 mt-1" />
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">Play vs AI</h3>
+                  <p className="text-slate-300 text-sm mb-4">Challenge the computer with three difficulty levels</p>
                 </div>
               </div>
+
+              <div className="space-y-2 mb-6">
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-green-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm flex items-center">
+                    <Zap className="h-3 w-3 mr-1 text-green-400" />
+                    Easy
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-yellow-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm flex items-center">
+                    <Target className="h-3 w-3 mr-1 text-yellow-400" />
+                    Medium
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-red-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm flex items-center">
+                    <Trophy className="h-3 w-3 mr-1 text-red-400" />
+                    Hard
+                  </span>
+                </div>
+              </div>
+
               <Link href="/game/ai">
-                <Button className="w-full bg-blue-600 hover:bg-blue-700 transition-all duration-200">
+                <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5">
                   Start AI Game
                 </Button>
               </Link>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-600/10 to-green-800/10 border-green-700/50 hover:from-green-600/20 hover:to-green-800/20 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-green-500/10">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center text-xl">
-                <Users className="h-6 w-6 mr-3 text-green-400" />
-                Multiplayer
-              </CardTitle>
-              <CardDescription className="text-slate-300">Create or join rooms to play with friends</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-sm text-slate-400">
-                <p>• Create private rooms</p>
-                <p>• Real-time gameplay</p>
-                <p>• Play with friends</p>
+          {/* Multiplayer Card */}
+          <Card className="bg-slate-800/90 border-2 border-green-500/50 hover:border-green-400 transition-all duration-300 hover:shadow-lg hover:shadow-green-500/20">
+            <CardContent className="p-6">
+              <div className="flex items-start space-x-3 mb-4">
+                <Users className="h-8 w-8 text-green-400 mt-1" />
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">Multiplayer</h3>
+                  <p className="text-slate-300 text-sm mb-4">Create or join rooms to play with friends</p>
+                </div>
               </div>
+
+              <div className="space-y-2 mb-6">
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-green-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm">Create private rooms</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-green-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm">Real-time gameplay</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-green-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm">Play with friends</span>
+                </div>
+              </div>
+
               <Link href="/multiplayer">
-                <Button className="w-full bg-green-600 hover:bg-green-700 transition-all duration-200">
+                <Button className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2.5">
                   Play Online
                 </Button>
               </Link>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-orange-600/10 to-orange-800/10 border-orange-700/50 hover:from-orange-600/20 hover:to-orange-800/20 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-orange-500/10">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center text-xl">
-                <UserPlus className="h-6 w-6 mr-3 text-orange-400" />
-                Friends
-              </CardTitle>
-              <CardDescription className="text-slate-300">
-                Coming soon - manage friends and send invites
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-sm text-slate-400">
-                <p>• Add friends</p>
-                <p>• Accept requests</p>
-                <p>• Chat & play together</p>
+          {/* Leaderboard Card */}
+          <Card className="bg-slate-800/90 border-2 border-purple-500/50 hover:border-purple-400 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/20">
+            <CardContent className="p-6">
+              <div className="flex items-start space-x-3 mb-4">
+                <Trophy className="h-8 w-8 text-purple-400 mt-1" />
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-2">Leaderboard</h3>
+                  <p className="text-slate-300 text-sm mb-4">See how you rank against other players</p>
+                </div>
               </div>
-              <Button disabled className="w-full bg-gray-600 cursor-not-allowed">
-                Coming Soon
-              </Button>
-            </CardContent>
-          </Card>
 
-          <Card className="bg-gradient-to-br from-purple-600/10 to-purple-800/10 border-purple-700/50 hover:from-purple-600/20 hover:to-purple-800/20 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-purple-500/10">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center text-xl">
-                <Trophy className="h-6 w-6 mr-3 text-purple-400" />
-                Leaderboard
-              </CardTitle>
-              <CardDescription className="text-slate-300">See how you rank against other players</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-sm text-slate-400">
-                <p>• Global rankings</p>
-                <p>• Win/Draw/Loss tracking</p>
-                <p>• Score-based system</p>
+              <div className="space-y-2 mb-6">
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-purple-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm">Global rankings</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-purple-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm">Win/Draw/Loss tracking</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-1 h-1 bg-purple-400 rounded-full"></div>
+                  <span className="text-slate-300 text-sm">Score-based system</span>
+                </div>
               </div>
+
               <Link href="/leaderboard">
-                <Button className="w-full bg-purple-600 hover:bg-purple-700 transition-all duration-200">
+                <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-2.5">
                   View Rankings
                 </Button>
               </Link>

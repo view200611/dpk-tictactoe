@@ -35,6 +35,9 @@ export default function AIGamePage() {
   const [isAIThinking, setIsAIThinking] = useState(false)
   const [gameStarted, setGameStarted] = useState(false)
   const [user, setUser] = useState<any>(null)
+  const [gamesPlayed, setGamesPlayed] = useState(0)
+  const [playerSymbol, setPlayerSymbol] = useState<Player>("X") // What symbol the human player uses
+  const [aiSymbol, setAiSymbol] = useState<Player>("O") // What symbol the AI uses
   const [sessionStats, setSessionStats] = useState({
     playerWins: 0,
     aiWins: 0,
@@ -43,7 +46,6 @@ export default function AIGamePage() {
     lastResult: null as "win" | "loss" | "draw" | null,
   })
 
-  // Get current user
   useEffect(() => {
     const getUser = async () => {
       const {
@@ -54,17 +56,14 @@ export default function AIGamePage() {
     getUser()
   }, [])
 
-  // Check game result whenever board changes
   useEffect(() => {
     const result = getGameResult(board, currentPlayer)
     setGameResult(result.result)
     setWinner(result.winner)
 
-    // Save game result to database when game ends
     if (result.result !== "ongoing" && gameStarted && user) {
       saveGameResult(result.result, result.winner)
 
-      // Update session stats
       setSessionStats((prev) => {
         const newStats = { ...prev }
 
@@ -72,13 +71,11 @@ export default function AIGamePage() {
           newStats.draws += 1
           newStats.currentStreak = 0
           newStats.lastResult = "draw"
-        } else if (result.winner === "X") {
-          // Player won
+        } else if (result.winner === playerSymbol) {
           newStats.playerWins += 1
           newStats.currentStreak = prev.lastResult === "win" ? prev.currentStreak + 1 : 1
           newStats.lastResult = "win"
-        } else if (result.winner === "O") {
-          // AI won, player lost
+        } else if (result.winner === aiSymbol) {
           newStats.aiWins += 1
           newStats.currentStreak = 0
           newStats.lastResult = "loss"
@@ -87,27 +84,25 @@ export default function AIGamePage() {
         return newStats
       })
     }
-  }, [board, currentPlayer, gameStarted, user])
+  }, [board, currentPlayer, gameStarted, user, playerSymbol, aiSymbol])
 
-  // AI move logic
   useEffect(() => {
-    if (currentPlayer === "O" && gameResult === "ongoing" && selectedDifficulty && gameStarted) {
+    if (currentPlayer === aiSymbol && gameResult === "ongoing" && selectedDifficulty && gameStarted) {
       setIsAIThinking(true)
 
-      // Add delay for better UX
       const timer = setTimeout(() => {
-        const aiMove = getAIMove(board, selectedDifficulty, "O")
+        const aiMove = getAIMove(board, selectedDifficulty, aiSymbol)
         if (aiMove !== -1) {
-          const newBoard = makeMove(board, aiMove, "O")
+          const newBoard = makeMove(board, aiMove, aiSymbol)
           setBoard(newBoard)
-          setCurrentPlayer("X")
+          setCurrentPlayer(playerSymbol)
         }
         setIsAIThinking(false)
       }, 500)
 
       return () => clearTimeout(timer)
     }
-  }, [currentPlayer, gameResult, selectedDifficulty, board, gameStarted])
+  }, [currentPlayer, gameResult, selectedDifficulty, board, gameStarted, aiSymbol, playerSymbol])
 
   const saveGameResult = async (result: GameResult, gameWinner: Player) => {
     if (!user || !selectedDifficulty) return
@@ -121,19 +116,19 @@ export default function AIGamePage() {
       let playerResult: string
       if (result === "draw") {
         playerResult = "draw"
-      } else if (gameWinner === "X") {
-        playerResult = "win" // Player won
+      } else if (gameWinner === playerSymbol) {
+        playerResult = "win"
       } else {
-        playerResult = "loss" // AI won, so player lost
+        playerResult = "loss"
       }
 
       const gameData = {
         player1_id: user.id,
-        player2_id: null, // AI game
+        player2_id: null,
         game_type: `ai_${selectedDifficulty}`,
         board_state: board,
         result: playerResult,
-        winner_id: gameWinner === "X" ? user.id : null,
+        winner_id: gameWinner === playerSymbol ? user.id : null,
       }
 
       const { error } = await supabase.from("games").insert(gameData)
@@ -148,39 +143,76 @@ export default function AIGamePage() {
   }
 
   const handleCellClick = (index: number) => {
-    if (gameResult !== "ongoing" || currentPlayer !== "X" || isAIThinking || board[index] !== "") return
+    if (gameResult !== "ongoing" || currentPlayer !== playerSymbol || isAIThinking || board[index] !== "") return
 
-    const newBoard = makeMove(board, index, "X")
+    const newBoard = makeMove(board, index, playerSymbol)
     setBoard(newBoard)
-    setCurrentPlayer("O")
+    setCurrentPlayer(aiSymbol)
+  }
+
+  const determineStartingPlayer = (gameCount: number) => {
+    if (gameCount < 3) {
+      return { playerSymbol: "X" as Player, aiSymbol: "O" as Player, startingPlayer: "X" as Player }
+    }
+
+    const shouldPlayerStart = Math.random() < 0.5
+    console.log(`[v0] Game ${gameCount + 1}: shouldPlayerStart = ${shouldPlayerStart}`)
+
+    if (shouldPlayerStart) {
+      // Player starts: Player = X, AI = O, X goes first
+      return { playerSymbol: "X" as Player, aiSymbol: "O" as Player, startingPlayer: "X" as Player }
+    } else {
+      // AI starts: AI = X, Player = O, X goes first (which is AI)
+      return { playerSymbol: "O" as Player, aiSymbol: "X" as Player, startingPlayer: "X" as Player }
+    }
   }
 
   const startGame = (difficulty: Difficulty) => {
+    const {
+      playerSymbol: newPlayerSymbol,
+      aiSymbol: newAiSymbol,
+      startingPlayer,
+    } = determineStartingPlayer(gamesPlayed)
+
     setSelectedDifficulty(difficulty)
     setBoard(createEmptyBoard())
-    setCurrentPlayer("X")
+    setPlayerSymbol(newPlayerSymbol)
+    setAiSymbol(newAiSymbol)
+    setCurrentPlayer(startingPlayer)
     setGameResult("ongoing")
     setWinner("")
     setGameStarted(true)
+    setGamesPlayed((prev) => prev + 1)
   }
 
   const resetGame = () => {
+    const {
+      playerSymbol: newPlayerSymbol,
+      aiSymbol: newAiSymbol,
+      startingPlayer,
+    } = determineStartingPlayer(gamesPlayed)
+
     setBoard(createEmptyBoard())
-    setCurrentPlayer("X")
+    setPlayerSymbol(newPlayerSymbol)
+    setAiSymbol(newAiSymbol)
+    setCurrentPlayer(startingPlayer)
     setGameResult("ongoing")
     setWinner("")
     setGameStarted(true)
-    setIsAIThinking(false) // Reset AI thinking state to prevent getting stuck
-    // Don't reset session stats - keep them for continuous play
+    setIsAIThinking(false)
+    setGamesPlayed((prev) => prev + 1)
   }
 
   const backToMenu = () => {
     setSelectedDifficulty(null)
     setGameStarted(false)
     setBoard(createEmptyBoard())
+    setPlayerSymbol("X")
+    setAiSymbol("O")
     setCurrentPlayer("X")
     setGameResult("ongoing")
     setWinner("")
+    setGamesPlayed(0)
     setSessionStats({
       playerWins: 0,
       aiWins: 0,
@@ -190,7 +222,6 @@ export default function AIGamePage() {
     })
   }
 
-  // Get winning cells for highlighting
   const getWinningCells = (): number[] => {
     if (winner === "") return []
 
@@ -265,7 +296,6 @@ export default function AIGamePage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 p-4">
       <div className="max-w-2xl mx-auto space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <Button
             onClick={backToMenu}
@@ -280,25 +310,26 @@ export default function AIGamePage() {
           </Badge>
         </div>
 
-        {/* Game Status */}
         <Card className="bg-slate-800 border-slate-700">
           <CardContent className="p-6 text-center">
             {gameResult === "ongoing" && (
               <div className="space-y-2">
                 <p className="text-lg text-white">
-                  {isAIThinking ? "AI is thinking..." : currentPlayer === "X" ? "Your turn" : "AI's turn"}
+                  {isAIThinking ? "AI is thinking..." : currentPlayer === playerSymbol ? "Your turn" : "AI's turn"}
                 </p>
                 <div className="flex justify-center">
                   <Badge variant="outline" className="border-blue-500 text-blue-400">
-                    You are X
+                    You are {playerSymbol}
                   </Badge>
                 </div>
               </div>
             )}
             {gameResult === "win" && (
               <div className="space-y-2">
-                <p className="text-2xl font-bold text-white">{winner === "X" ? "🎉 You Won!" : "🤖 AI Won!"}</p>
-                <p className="text-slate-400">{winner === "X" ? "Great job!" : "Better luck next time!"}</p>
+                <p className="text-2xl font-bold text-white">
+                  {winner === playerSymbol ? "🎉 You Won!" : "🤖 AI Won!"}
+                </p>
+                <p className="text-slate-400">{winner === playerSymbol ? "Great job!" : "Better luck next time!"}</p>
               </div>
             )}
             {gameResult === "draw" && (
@@ -310,11 +341,10 @@ export default function AIGamePage() {
           </CardContent>
         </Card>
 
-        {/* Game Board with session stats */}
         <GameBoard
           board={board}
           onCellClick={handleCellClick}
-          disabled={currentPlayer !== "X" || isAIThinking || gameResult !== "ongoing"}
+          disabled={currentPlayer !== playerSymbol || isAIThinking || gameResult !== "ongoing"}
           winningCells={getWinningCells()}
           showStats={gameStarted && sessionStats.playerWins + sessionStats.aiWins + sessionStats.draws > 0}
           playerXWins={sessionStats.playerWins}
@@ -323,7 +353,6 @@ export default function AIGamePage() {
           currentStreak={sessionStats.currentStreak}
         />
 
-        {/* Game Controls */}
         {gameResult !== "ongoing" && (
           <div className="flex justify-center space-x-4">
             <Button onClick={resetGame} className="bg-blue-600 hover:bg-blue-700">
